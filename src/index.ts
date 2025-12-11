@@ -60,8 +60,8 @@ bot.onText(/\/start/, async (msg) => {
             '🔐 Ласкаво просимо до GPS Monitor Bot!\n\n' +
             'Для підписки на сповіщення, будь ласка, введіть пароль:'
         );
-    } catch (error) {
-        logError('Error in /start:', error);
+    } catch (error: any) {
+        logError('Error in /start:', error.message || 'Unknown error');
         bot.sendMessage(chatId, '❌ Помилка обробки запиту. Спробуйте ще раз.');
     }
 });
@@ -83,8 +83,8 @@ bot.onText(/\/stop/, async (msg) => {
             '👋 Ви відписалися від GPS сповіщень.\n\n' +
             'Використайте /start для повторної підписки.'
         );
-    } catch (error) {
-        logError('Error in /stop:', error);
+    } catch (error: any) {
+        logError('Error in /stop:', error.message || 'Unknown error');
         bot.sendMessage(chatId, '❌ Помилка обробки запиту. Спробуйте ще раз.');
     }
 });
@@ -123,8 +123,8 @@ bot.onText(/\/status/, async (msg) => {
             `Швидкість: ${status.speed} км/год\n` +
             `Запалювання: ${status.ignition ? 'вимкнено' : 'увімкнено'}`
         );
-    } catch (error) {
-        logError('Error in /status:', error);
+    } catch (error: any) {
+        logError('Error in /status:', error.message || 'Unknown error');
         bot.sendMessage(chatId, '❌ Помилка отримання статусу пристрою. Перевірка статусу пристрою можлива раз у 5 хвилин. Спробуйте ще раз.');
     }
 });
@@ -165,8 +165,8 @@ bot.on('message', async (msg) => {
                 '❌ Неправильний пароль. Спробуйте ще раз або використайте /start для перезапуску.'
             );
         }
-    } catch (error) {
-        logError('Error processing message:', error);
+    } catch (error: any) {
+        logError('Error processing message:', error.message || 'Unknown error');
         bot.sendMessage(chatId, '❌ Помилка обробки запиту. Спробуйте ще раз.');
     }
 });
@@ -235,8 +235,11 @@ async function checkDeviceStatus(): Promise<DeviceStatus> {
             ignition: latestPoint.ignition === 1,
             hasData: true
         };
-    } catch (error) {
-        logError('Error fetching device status:', error);
+    } catch (error: any) {
+        const errorMsg = error.response 
+            ? `API error: ${error.response.status} - ${error.response.statusText}`
+            : error.message || 'Unknown error';
+        logError('Error fetching device status:', errorMsg);
         throw error;
     }
 }
@@ -249,8 +252,8 @@ async function sendAlertToSubscribers(message: string) {
     for (const sub of subscribers) {
         try {
             await bot.sendMessage(sub.chat_id, message, { parse_mode: 'HTML' });
-        } catch (error) {
-            logError(`Failed to send to ${sub.chat_id}:`, error);
+        } catch (error: any) {
+            logError(`Failed to send to ${sub.chat_id}:`, error.message || 'Unknown error');
         }
     }
 }
@@ -262,6 +265,7 @@ async function performCheck() {
         const status = await checkDeviceStatus();
 
         if (!status.hasData) {
+            log('[CHECK] No data received in last 15 minutes');
             if (await shouldSendAlert(DEVICE_ID, 'no_data')) {
                 await sendAlertToSubscribers(
                     `🚨 <b>ПОМИЛКА: Немає даних</b>\n\n` +
@@ -273,6 +277,16 @@ async function performCheck() {
             }
             return;
         }
+
+        const lastUpdateTime = new Date(status.lastUpdate! * 1000).toISOString();
+        log(
+            `[CHECK] ✅ GPS Status OK - ` +
+            `Signal: ${status.gpsSignal} sats, ` +
+            `Speed: ${status.speed} km/h, ` +
+            `Ignition: ${status.ignition ? 'ON' : 'OFF'}, ` +
+            `Location: ${status.location!.lat.toFixed(6)}, ${status.location!.long.toFixed(6)}, ` +
+            `Last update: ${lastUpdateTime}`
+        );
 
         if (status.gpsSignal !== null && status.gpsSignal < 10) {
             if (await shouldSendAlert(DEVICE_ID, 'low_gps')) {
@@ -291,7 +305,7 @@ async function performCheck() {
 
         log('[CHECK] Check completed successfully');
     } catch (error) {
-        logError('[ERROR] Check failed:', error);
+        logError('[ERROR] Check failed:', (error as Error).message || 'Unknown error');
     }
 }
 
