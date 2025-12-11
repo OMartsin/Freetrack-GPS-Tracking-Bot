@@ -1,4 +1,5 @@
 # Build stage
+
 FROM node:20-alpine AS builder
 
 # Install build dependencies for better-sqlite3
