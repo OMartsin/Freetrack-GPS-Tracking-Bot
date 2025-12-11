@@ -1,0 +1,12 @@
+.env
+*.db
+node_modules/
+dist/
+
+# IDE files
+.idea/
+*.iml
+vscode/
+*.swp
+*.swo
+*~
