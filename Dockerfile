@@ -1,5 +1,4 @@
 # Build stage
-
 FROM node:20-alpine AS builder
 
 # Install build dependencies for better-sqlite3
@@ -7,17 +6,21 @@ RUN apk add --no-cache python3 make g++ gcc
 
 WORKDIR /app
 
-# Copy package files
+# Copy package files first for better caching
 COPY package*.json ./
 
-# Install dependencies
+# Install ALL dependencies (including devDependencies for building)
 RUN npm ci
 
-# Copy source
-COPY . .
+# Copy tsconfig and source files
+COPY tsconfig.json ./
+COPY src ./src
 
 # Build TypeScript
 RUN npm run build
+
+# Verify build output
+RUN ls -la dist/
 
 # Production stage
 FROM node:20-alpine

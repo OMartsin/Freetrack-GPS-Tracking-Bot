@@ -9,6 +9,4 @@ dist
 *.iml
 .vscode
 *.db
-src
-tsconfig.json
 
