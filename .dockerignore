@@ -1,0 +1,14 @@
+node_modules
+npm-debug.log
+.env
+.git
+.gitignore
+*.md
+dist
+.idea
+*.iml
+.vscode
+*.db
+src
+tsconfig.json
+
