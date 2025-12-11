@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.0.0",
+    "@types/node-cron": "^3.0.11",
     "@types/node-telegram-bot-api": "^0.64.13",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
