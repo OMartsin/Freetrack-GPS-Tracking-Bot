@@ -140,19 +140,23 @@ bot.onText(/\/status/, async (msg) => {
             return;
         }
 
-        const mapsLink = `https://www.google.com/maps?q=${status.location!.lat},${status.location!.long}`;
-        bot.sendMessage(
-            chatId,
-            `📊 Статус пристрою (${DEVICE_ID})\n\n` +
+        let message = `📊 Статус пристрою (${DEVICE_ID})\n\n` +
             `Останнє оновлення: ${status.lastUpdate!.toLocaleString('uk-UA')}\n` +
-            `GPS сигнал: ${status.gpsSignal} ${status.gpsSignal! < 10 ? '(слабкий)' : '(нормальний)'}` + '\n' +
-            `Локація: ${status.location!.lat.toFixed(6)}, ${status.location!.long.toFixed(6)}\n` +
-            `📍 <a href="${mapsLink}">Відкрити на карті</a>\n` +
-            `Швидкість: ${status.speed} км/год\n` +
+            `GPS сигнал: ${status.gpsSignal ?? 'N/A'} ${status.gpsSignal && status.gpsSignal < 10 ? '(слабкий)' : '(нормальний)'}` + '\n';
+        
+        if (status.location) {
+            const mapsLink = `https://www.google.com/maps?q=${status.location.lat},${status.location.long}`;
+            message += `Локація: ${status.location.lat.toFixed(6)}, ${status.location.long.toFixed(6)}\n` +
+                `📍 <a href="${mapsLink}">Відкрити на карті</a>\n`;
+        } else {
+            message += `Локація: Недоступна\n`;
+        }
+        
+        message += `Швидкість: ${status.speed ?? 0} км/год\n` +
             `Запалювання: ${status.ignition ? 'увімкнено' : 'вимкнено'}\n\n` +
-            `Перевірено: ${status.checkedAt.toLocaleString('uk-UA')}`,
-            { parse_mode: 'HTML' }
-        );
+            `Перевірено: ${status.checkedAt.toLocaleString('uk-UA')}`;
+        
+        bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
     } catch (error: any) {
         logError('Error in /status:', error.message || 'Unknown error');
         bot.sendMessage(chatId, '❌ Помилка отримання статусу пристрою. Спробуйте ще раз.');
@@ -260,7 +264,14 @@ async function fetchAndSaveDeviceData(): Promise<{ savedCount: number; hasRecent
 
         let savedCount = 0;
         let duplicateCount = 0;
+        let skippedCount = 0;
         for (const point of points) {
+            // Skip points without valid coordinates
+            if (!point.lat || !point.long) {
+                skippedCount++;
+                continue;
+            }
+            
             try {
                 const saved = await saveDeviceHistory({
                     device_id: DEVICE_ID,
@@ -284,7 +295,7 @@ async function fetchAndSaveDeviceData(): Promise<{ savedCount: number; hasRecent
             }
         }
 
-        log(`[FETCH] Saved ${savedCount} new GPS points (${duplicateCount} duplicates skipped)`);
+        log(`[FETCH] Saved ${savedCount} new GPS points (${duplicateCount} duplicates, ${skippedCount} invalid coordinates skipped)`);
 
         const latestPoint = points[points.length - 1];
         const hasRecentData = latestPoint.time >= fifteenMinutesAgo;
@@ -339,27 +350,34 @@ async function performCheck() {
         }
 
         const lastUpdateTime = status.lastUpdate!.toISOString();
+        const locationStr = status.location 
+            ? `${status.location.lat.toFixed(6)}, ${status.location.long.toFixed(6)}`
+            : 'N/A';
         log(
             `[CHECK] ✅ GPS Status OK - ` +
-            `Signal: ${status.gpsSignal} sats, ` +
-            `Speed: ${status.speed} km/h, ` +
+            `Signal: ${status.gpsSignal ?? 'N/A'} sats, ` +
+            `Speed: ${status.speed ?? 0} km/h, ` +
             `Ignition: ${status.ignition ? 'ON' : 'OFF'}, ` +
-            `Location: ${status.location!.lat.toFixed(6)}, ${status.location!.long.toFixed(6)}, ` +
+            `Location: ${locationStr}, ` +
             `Last update: ${lastUpdateTime}`
         );
 
         if (status.gpsSignal !== null && status.gpsSignal < 10) {
             if (await shouldSendAlert(DEVICE_ID, 'low_gps')) {
-                const mapsLink = `https://www.google.com/maps?q=${status.location!.lat},${status.location!.long}`;
-                await sendAlertToSubscribers(
-                    `⚠️ <b>УВАГА: Слабкий GPS сигнал</b>\n\n` +
-                    `Пристрій ${DEVICE_ID} має слабкий GPS сигнал!\n\n` +
-                    `Локація: ${status.location!.lat.toFixed(6)}, ${status.location!.long.toFixed(6)}\n` +
-                    `📍 <a href="${mapsLink}">Відкрити на карті</a>\n` +
-                    `GPS сигнал: ${status.gpsSignal} ${status.gpsSignal! < 10 ? '(слабкий)' : '(нормальний)'}` + '\n' +
-                    `Швидкість: ${status.speed} км/год\n` +
-                    `Час: ${status.lastUpdate!.toLocaleString('uk-UA')}`
-                );
+                let alertMessage = `⚠️ <b>УВАГА: Слабкий GPS сигнал</b>\n\n` +
+                    `Пристрій ${DEVICE_ID} має слабкий GPS сигнал!\n\n`;
+                
+                if (status.location) {
+                    const mapsLink = `https://www.google.com/maps?q=${status.location.lat},${status.location.long}`;
+                    alertMessage += `Локація: ${status.location.lat.toFixed(6)}, ${status.location.long.toFixed(6)}\n` +
+                        `📍 <a href="${mapsLink}">Відкрити на карті</a>\n`;
+                }
+                
+                alertMessage += `GPS сигнал: ${status.gpsSignal} (слабкий)\n` +
+                    `Швидкість: ${status.speed ?? 0} км/год\n` +
+                    `Час: ${status.lastUpdate!.toLocaleString('uk-UA')}`;
+                
+                await sendAlertToSubscribers(alertMessage);
                 await recordAlert(DEVICE_ID, 'low_gps');
                 log('[ALERT] Low GPS alert sent');
             }
