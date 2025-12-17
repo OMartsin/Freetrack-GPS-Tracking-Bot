@@ -40,7 +40,21 @@ function logError(...args: any[]) {
     console.error(`[${getUTCTimestamp()}]`, ...args);
 }
 
-const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+const bot = new TelegramBot(TELEGRAM_TOKEN, { 
+    polling: {
+        interval: 1000,
+        autoStart: true,
+        params: {
+            timeout: 10
+        }
+    }
+});
+
+// Handle polling errors gracefully
+bot.on('polling_error', (error) => {
+    logError('[Telegram Polling Error]:', error.code, error.message);
+    // Don't crash the app on polling errors - they're usually temporary
+});
 
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
