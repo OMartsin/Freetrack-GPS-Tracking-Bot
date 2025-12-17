@@ -1,9 +1,6 @@
 # Build stage
 FROM node:20-alpine AS builder
 
-# Install build dependencies for better-sqlite3
-RUN apk add --no-cache python3 make g++ gcc
-
 WORKDIR /app
 
 # Copy package files first for better caching
@@ -12,7 +9,9 @@ COPY package*.json ./
 # Install ALL dependencies (including devDependencies for building)
 RUN npm ci
 
-# Copy tsconfig and source files
+# Copy migration config, migrations, tsconfig and source files
+COPY .pgmigrate.json ./
+COPY migrations ./migrations
 COPY tsconfig.json ./
 COPY src ./src
 
@@ -25,24 +24,23 @@ RUN ls -la dist/
 # Production stage
 FROM node:20-alpine
 
-# Install runtime dependencies for better-sqlite3
-RUN apk add --no-cache python3 make g++ gcc
-
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
-# Install production dependencies only
-RUN npm ci --omit=dev
+# Install all dependencies (we need devDependencies for migrations)
+RUN npm ci
 
-# Copy built application
+# Copy built application, migrations, and config
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/migrations ./migrations
+COPY --from=builder /app/.pgmigrate.json ./
 
-# Create dbs directory
-RUN mkdir -p dbs
+COPY docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
 
 EXPOSE 3000
 
-CMD ["npm", "start"]
+CMD ["./docker-entrypoint.sh"]
 

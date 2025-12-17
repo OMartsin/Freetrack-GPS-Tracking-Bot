@@ -1,9 +1,6 @@
 import { query, queryOne } from '../config/database';
 import { Subscriber, CreateSubscriberDto, UpdateSubscriberDto } from '../models/Subscriber';
 
-/**
- * Check if a user is authenticated
- */
 export async function isAuthenticated(chatId: number): Promise<boolean> {
     const result = await queryOne<{ is_authenticated: boolean }>(
         'SELECT is_authenticated FROM subscribers WHERE chat_id = $1',
@@ -12,9 +9,6 @@ export async function isAuthenticated(chatId: number): Promise<boolean> {
     return result?.is_authenticated ?? false;
 }
 
-/**
- * Check if a user is awaiting password
- */
 export async function isAwaitingPassword(chatId: number): Promise<boolean> {
     const result = await queryOne<{ awaiting_password: boolean }>(
         'SELECT awaiting_password FROM subscribers WHERE chat_id = $1',
@@ -23,9 +17,6 @@ export async function isAwaitingPassword(chatId: number): Promise<boolean> {
     return result?.awaiting_password ?? false;
 }
 
-/**
- * Set the awaiting password status for a user
- */
 export async function setAwaitingPassword(chatId: number, awaiting: boolean): Promise<void> {
     const now = new Date();
     
@@ -41,9 +32,6 @@ export async function setAwaitingPassword(chatId: number, awaiting: boolean): Pr
     );
 }
 
-/**
- * Authenticate a user
- */
 export async function authenticateUser(chatId: number): Promise<void> {
     const now = new Date();
     
@@ -61,25 +49,16 @@ export async function authenticateUser(chatId: number): Promise<void> {
     );
 }
 
-/**
- * Remove a subscriber
- */
 export async function removeSubscriber(chatId: number): Promise<void> {
     await query('DELETE FROM subscribers WHERE chat_id = $1', [chatId]);
 }
 
-/**
- * Get all authenticated subscribers
- */
 export async function getAllAuthenticatedSubscribers(): Promise<{ chat_id: number }[]> {
     return await query<{ chat_id: number }>(
         'SELECT chat_id FROM subscribers WHERE is_authenticated = true'
     );
 }
 
-/**
- * Clean up stale authentication requests older than 24 hours
- */
 export async function cleanupStaleRequests(): Promise<void> {
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     

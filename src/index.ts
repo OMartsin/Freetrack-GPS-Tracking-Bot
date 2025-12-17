@@ -3,17 +3,24 @@ import TelegramBot from 'node-telegram-bot-api';
 import cron from 'node-cron';
 import axios from 'axios';
 import {
-    initDb,
     isAuthenticated,
     isAwaitingPassword,
     setAwaitingPassword,
     authenticateUser,
     removeSubscriber,
     getAllAuthenticatedSubscribers,
-    shouldSendAlert,
-    recordAlert,
     cleanupStaleRequests
 } from './repositories/subscribersRepository';
+import {
+    shouldSendAlert,
+    recordAlert
+} from './repositories/alertsRepository';
+import {
+    saveDeviceHistory,
+    getLatestDeviceStatus,
+    getLastKnownLocation,
+    cleanupOldHistory
+} from './repositories/deviceHistoryRepository';
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN!;
 const FREETRACK_TOKEN = process.env.FREETRACK_TOKEN!;
@@ -103,29 +110,52 @@ bot.onText(/\/status/, async (msg) => {
             return;
         }
 
-        const status = await checkDeviceStatus();
+        const status = await getLatestDeviceStatus(DEVICE_ID);
 
-        if (!status.hasData) {
+        if (!status) {
             bot.sendMessage(
                 chatId,
-                `📊 Device Status (${DEVICE_ID})\n\n` +
-                '❌ No data received in the last 15 minutes'
+                `📊 Статус пристрою (${DEVICE_ID})\n\n` +
+                '❌ Немає даних. Зачекайте першої перевірки.'
             );
             return;
         }
 
+        if (!status.hasData) {
+            let message = `📊 Статус пристрою (${DEVICE_ID})\n\n` +
+                '❌ Пристрій не надсилав даних протягом останніх 15 хвилин\n\n';
+            
+            const lastKnown = await getLastKnownLocation(DEVICE_ID);
+            if (lastKnown) {
+                const mapsLink = `https://www.google.com/maps?q=${lastKnown.latitude},${lastKnown.longitude}`;
+                message += `Остання відома локація: ${lastKnown.lastUpdate.toLocaleString('uk-UA')}\n` +
+                    `Координати: ${lastKnown.latitude.toFixed(6)}, ${lastKnown.longitude.toFixed(6)}\n` +
+                    `📍 <a href="${mapsLink}">Відкрити на карті</a>\n\n`;
+            }
+            
+            message += `Перевірено: ${status.checkedAt.toLocaleString('uk-UA')}\n\n` +
+                `🔗 <a href="https://gps.freetrack.com.ua/?auth_token=${FREETRACK_TOKEN}">Перевірити пристрій</a>`;
+            
+            bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+            return;
+        }
+
+        const mapsLink = `https://www.google.com/maps?q=${status.location!.lat},${status.location!.long}`;
         bot.sendMessage(
             chatId,
             `📊 Статус пристрою (${DEVICE_ID})\n\n` +
-            `Останнє оновлення: ${new Date(status.lastUpdate! * 1000).toLocaleString('uk-UA')}\n` +
+            `Останнє оновлення: ${status.lastUpdate!.toLocaleString('uk-UA')}\n` +
             `GPS сигнал: ${status.gpsSignal} ${status.gpsSignal! < 10 ? '(слабкий)' : '(нормальний)'}` + '\n' +
             `Локація: ${status.location!.lat.toFixed(6)}, ${status.location!.long.toFixed(6)}\n` +
+            `📍 <a href="${mapsLink}">Відкрити на карті</a>\n` +
             `Швидкість: ${status.speed} км/год\n` +
-            `Запалювання: ${status.ignition ? 'вимкнено' : 'увімкнено'}`
+            `Запалювання: ${status.ignition ? 'увімкнено' : 'вимкнено'}\n\n` +
+            `Перевірено: ${status.checkedAt.toLocaleString('uk-UA')}`,
+            { parse_mode: 'HTML' }
         );
     } catch (error: any) {
         logError('Error in /status:', error.message || 'Unknown error');
-        bot.sendMessage(chatId, '❌ Помилка отримання статусу пристрою. Перевірка статусу пристрою можлива раз у 5 хвилин. Спробуйте ще раз.');
+        bot.sendMessage(chatId, '❌ Помилка отримання статусу пристрою. Спробуйте ще раз.');
     }
 });
 
@@ -182,85 +212,6 @@ interface DevicePoint {
     sensors?: Record<string, string>;
 }
 
-interface DeviceStatus {
-    lastUpdate: number | null;
-    gpsSignal: number | null;
-    location: { lat: number; long: number } | null;
-    speed: number | null;
-    ignition: boolean | null;
-    hasData: boolean;
-    lastKnownUpdate?: number | null;
-}
-
-async function checkDeviceStatus(): Promise<DeviceStatus> {
-    const now = Math.floor(Date.now() / 1000);
-    const fifteenMinutesAgo = now - (15 * 60);
-    const oneDayAgo = now - (1 * 24 * 60 * 60);
-
-    const url = `https://gpsapi.freetrack.ua/api/`;
-    const params = {
-        auth_token: FREETRACK_TOKEN,
-        api_type: 'reports',
-        api_name: 'device-trace',
-        id: DEVICE_ID,
-        dateFrom: oneDayAgo,
-        dateTo: now
-    };
-
-    try {
-        const response = await axios.get(url, { params, timeout: 10000 });
-
-        if (response.data.result !== 'ok') {
-            throw new Error('API error: ' + JSON.stringify(response.data));
-        }
-
-        const deviceData = response.data.response.find((d: any) => d.id === parseInt(DEVICE_ID));
-
-        if (!deviceData || deviceData.points.length === 0) {
-            return {
-                lastUpdate: null,
-                gpsSignal: null,
-                location: null,
-                speed: null,
-                ignition: null,
-                hasData: false,
-                lastKnownUpdate: null
-            };
-        }
-
-        const latestPoint: DevicePoint = deviceData.points[deviceData.points.length - 1];
-        
-        const hasRecentData = latestPoint.time >= fifteenMinutesAgo;
-
-        if (!hasRecentData) {
-            return {
-                lastUpdate: null,
-                gpsSignal: null,
-                location: null,
-                speed: null,
-                ignition: null,
-                hasData: false,
-                lastKnownUpdate: latestPoint.time
-            };
-        }
-
-        return {
-            lastUpdate: latestPoint.time,
-            gpsSignal: latestPoint.gps,
-            location: { lat: latestPoint.lat, long: latestPoint.long },
-            speed: latestPoint.speed,
-            ignition: latestPoint.ignition === 1,
-            hasData: true
-        };
-    } catch (error: any) {
-        const errorMsg = error.response 
-            ? `API error: ${error.response.status} - ${error.response.statusText}`
-            : error.message || 'Unknown error';
-        logError('Error fetching device status:', errorMsg);
-        throw error;
-    }
-}
-
 async function sendAlertToSubscribers(message: string) {
     const subscribers = await getAllAuthenticatedSubscribers();
 
@@ -275,21 +226,106 @@ async function sendAlertToSubscribers(message: string) {
     }
 }
 
+async function fetchAndSaveDeviceData(): Promise<{ savedCount: number; hasRecentData: boolean }> {
+    const now = Math.floor(Date.now() / 1000);
+    const oneHourAgo = now - (1 * 60 * 60);
+    const fifteenMinutesAgo = now - (15 * 60);
+
+    const url = `https://gpsapi.freetrack.ua/api/`;
+    const params = {
+        auth_token: FREETRACK_TOKEN,
+        api_type: 'reports',
+        api_name: 'device-trace',
+        id: DEVICE_ID,
+        dateFrom: oneHourAgo,
+        dateTo: now
+    };
+
+    try {
+        const response = await axios.get(url, { params, timeout: 10000 });
+
+        if (response.data.result !== 'ok') {
+            throw new Error('API error: ' + JSON.stringify(response.data));
+        }
+
+        const deviceData = response.data.response.find((d: any) => d.id === parseInt(DEVICE_ID));
+
+        if (!deviceData || deviceData.points.length === 0) {
+            log('[FETCH] No data points received from API');
+            return { savedCount: 0, hasRecentData: false };
+        }
+
+        const points: DevicePoint[] = deviceData.points;
+        log(`[FETCH] Received ${points.length} GPS points from API`);
+
+        let savedCount = 0;
+        let duplicateCount = 0;
+        for (const point of points) {
+            try {
+                const saved = await saveDeviceHistory({
+                    device_id: DEVICE_ID,
+                    last_update: new Date(point.time * 1000),
+                    gps_signal: point.gps,
+                    latitude: point.lat,
+                    longitude: point.long,
+                    speed: point.speed,
+                    ignition: point.ignition === 1,
+                    has_data: true,
+                    checked_at: new Date(point.time * 1000)
+                });
+                
+                if (saved) {
+                    savedCount++;
+                } else {
+                    duplicateCount++;
+                }
+            } catch (error: any) {
+                logError('[FETCH] Error saving point:', error.message);
+            }
+        }
+
+        log(`[FETCH] Saved ${savedCount} new GPS points (${duplicateCount} duplicates skipped)`);
+
+        const latestPoint = points[points.length - 1];
+        const hasRecentData = latestPoint.time >= fifteenMinutesAgo;
+
+        return { savedCount, hasRecentData };
+    } catch (error: any) {
+        const errorMsg = error.response 
+            ? `API error: ${error.response.status} - ${error.response.statusText}`
+            : error.message || 'Unknown error';
+        logError('[FETCH] Error fetching device data:', errorMsg);
+        throw error;
+    }
+}
+
 async function performCheck() {
     log('[CHECK] Starting GPS check...');
 
     try {
-        const status = await checkDeviceStatus();
+        await fetchAndSaveDeviceData();
+        
+        const status = await getLatestDeviceStatus(DEVICE_ID);
+        
+        // check if the last update is within the last 15 minutes
+        const hasRecentData = status && status.hasData && 
+            status.lastUpdate && 
+            (new Date().getTime() - status.lastUpdate.getTime()) < 15 * 60 * 1000;
 
-        if (!status.hasData) {
+        if (!hasRecentData) {
             log('[CHECK] No data received in last 15 minutes');
+            
+            const lastKnown = await getLastKnownLocation(DEVICE_ID);
+            
             if (await shouldSendAlert(DEVICE_ID, 'no_data')) {
                 let message = `🚨 <b>ПОМИЛКА: Немає даних</b>\n\n` +
                     `Пристрій ${DEVICE_ID} не надсилав даних протягом останніх 15 хвилин!\n\n`;
                 
-                if (status.lastKnownUpdate) {
-                    const lastSeenTime = new Date(status.lastKnownUpdate * 1000).toLocaleString('uk-UA');
-                    message += `Остання відома локація: ${lastSeenTime}\n\n`;
+                if (lastKnown) {
+                    const mapsLink = `https://www.google.com/maps?q=${lastKnown.latitude},${lastKnown.longitude}`;
+                    message += `Останнє оновлення: ${lastKnown.lastUpdate.toLocaleString('uk-UA')}\n` +
+                        `Координати: ${lastKnown.latitude.toFixed(6)}, ${lastKnown.longitude.toFixed(6)}\n` +
+                        `📍 <a href="${mapsLink}">Відкрити на карті</a>\n\n`;
                 }
                 
                 message += `Час перевірки: ${new Date().toLocaleString('uk-UA')}\n\n` +
@@ -302,7 +338,7 @@ async function performCheck() {
             return;
         }
 
-        const lastUpdateTime = new Date(status.lastUpdate! * 1000).toISOString();
+        const lastUpdateTime = status.lastUpdate!.toISOString();
         log(
             `[CHECK] ✅ GPS Status OK - ` +
             `Signal: ${status.gpsSignal} sats, ` +
@@ -314,13 +350,15 @@ async function performCheck() {
 
         if (status.gpsSignal !== null && status.gpsSignal < 10) {
             if (await shouldSendAlert(DEVICE_ID, 'low_gps')) {
+                const mapsLink = `https://www.google.com/maps?q=${status.location!.lat},${status.location!.long}`;
                 await sendAlertToSubscribers(
                     `⚠️ <b>УВАГА: Слабкий GPS сигнал</b>\n\n` +
                     `Пристрій ${DEVICE_ID} має слабкий GPS сигнал!\n\n` +
                     `Локація: ${status.location!.lat.toFixed(6)}, ${status.location!.long.toFixed(6)}\n` +
+                    `📍 <a href="${mapsLink}">Відкрити на карті</a>\n` +
                     `GPS сигнал: ${status.gpsSignal} ${status.gpsSignal! < 10 ? '(слабкий)' : '(нормальний)'}` + '\n' +
                     `Швидкість: ${status.speed} км/год\n` +
-                    `Час: ${new Date(status.lastUpdate! * 1000).toLocaleString('uk-UA')}`
+                    `Час: ${status.lastUpdate!.toLocaleString('uk-UA')}`
                 );
                 await recordAlert(DEVICE_ID, 'low_gps');
                 log('[ALERT] Low GPS alert sent');
@@ -334,15 +372,22 @@ async function performCheck() {
 }
 
 async function start() {
-    await initDb();
-    log('✅ Database initialized');
-
     log('✅ Telegram bot started');
 
     cron.schedule(CHECK_INTERVAL, performCheck);
     log(`✅ Cron job scheduled: ${CHECK_INTERVAL}`);
 
-    cron.schedule('0 0 * * *', cleanupStaleRequests);
+    cron.schedule('0 0 * * *', async () => {
+        log('[CLEANUP] Running daily cleanup...');
+        await cleanupStaleRequests();
+        log('[CLEANUP] Stale requests cleaned up');
+    });
+
+    cron.schedule('0 0 * * *', async () => {
+        log('[CLEANUP] Cleaning up old device history...');
+        const deletedCount = await cleanupOldHistory(7);
+        log(`[CLEANUP] Deleted ${deletedCount} old device history records`);
+    });
 
     await performCheck();
 }
