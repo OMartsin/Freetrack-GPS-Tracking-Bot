@@ -6,9 +6,7 @@ const getDatabaseConfig = (): PoolConfig => {
     if (databaseUrl) {
         return {
             connectionString: databaseUrl,
-            ssl: process.env.DB_SSL === 'false' ? false : {
-                rejectUnauthorized: false
-            }
+            ssl: false
         };
     } else {
         return {
@@ -31,14 +29,40 @@ pool.on('error', (err: Error) => {
     console.error('Unexpected database error:', err);
 });
 
-export async function query<T = any>(text: string, params?: any[]): Promise<T[]> {
-    const client = await pool.connect();
-    try {
-        const result = await client.query(text, params);
-        return result.rows;
-    } finally {
-        client.release();
+async function queryWithRetry<T = any>(text: string, params?: any[], retries = 3): Promise<T[]> {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        let client;
+        try {
+            client = await pool.connect();
+            const result = await client.query(text, params);
+            return result.rows;
+        } catch (error: any) {
+            if (client) {
+                client.release(true);
+            }
+            
+            const isConnectionError = error.code === 'ETIMEDOUT' || 
+                                     error.code === 'ECONNREFUSED' || 
+                                     error.code === 'ECONNRESET';
+            
+            if (isConnectionError && attempt < retries) {
+                console.log(`[DB] Connection error, retrying (${attempt}/${retries})...`);
+                await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                continue;
+            }
+            
+            throw error;
+        } finally {
+            if (client) {
+                client.release();
+            }
+        }
     }
+    throw new Error('Max retries reached');
+}
+
+export async function query<T = any>(text: string, params?: any[]): Promise<T[]> {
+    return queryWithRetry<T>(text, params);
 }
 
 export async function queryOne<T = any>(text: string, params?: any[]): Promise<T | null> {

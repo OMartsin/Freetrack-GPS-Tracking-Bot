@@ -2,6 +2,56 @@ import { query, queryOne } from '../config/database';
 import { DeviceHistory, CreateDeviceHistoryDto, DeviceStatusResponse } from '../models/DeviceHistory';
 
 
+export async function saveDeviceHistoryBatch(dataArray: CreateDeviceHistoryDto[]): Promise<number> {
+    if (dataArray.length === 0) return 0;
+    
+    // Build multi-row insert
+    const values: any[] = [];
+    const placeholders: string[] = [];
+    
+    dataArray.forEach((data, index) => {
+        const offset = index * 9;
+        placeholders.push(
+            `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9})`
+        );
+        values.push(
+            data.device_id,
+            data.last_update,
+            data.gps_signal,
+            data.latitude,
+            data.longitude,
+            data.speed,
+            data.ignition,
+            data.has_data,
+            data.checked_at
+        );
+    });
+    
+    try {
+        const result = await query<{ count: string }>(
+            `INSERT INTO device_history 
+             (device_id, last_update, gps_signal, latitude, longitude, speed, ignition, has_data, checked_at)
+             VALUES ${placeholders.join(', ')}
+             ON CONFLICT (device_id, last_update) DO NOTHING
+             RETURNING *`,
+            values
+        );
+        
+        return result.length;
+    } catch (error: any) {
+        // Fallback: try one by one if batch fails
+        if (error.code === '42P10' || error.message?.includes('there is no unique or exclusion constraint')) {
+            let savedCount = 0;
+            for (const data of dataArray) {
+                const result = await saveDeviceHistory(data);
+                if (result) savedCount++;
+            }
+            return savedCount;
+        }
+        throw error;
+    }
+}
+
 export async function saveDeviceHistory(data: CreateDeviceHistoryDto): Promise<DeviceHistory | null> {
     try {
         const result = await queryOne<DeviceHistory>(

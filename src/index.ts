@@ -17,6 +17,7 @@ import {
 } from './repositories/alertsRepository';
 import {
     saveDeviceHistory,
+    saveDeviceHistoryBatch,
     getLatestDeviceStatus,
     getLastKnownLocation,
     cleanupOldHistory
@@ -288,40 +289,30 @@ async function fetchAndSaveDeviceData(): Promise<{ savedCount: number; hasRecent
         const points: DevicePoint[] = deviceData.points;
         log(`[FETCH] Received ${points.length} GPS points from API`);
 
-        let savedCount = 0;
-        let duplicateCount = 0;
-        let skippedCount = 0;
-        for (const point of points) {
-            // Skip points without valid coordinates
-            if (!point.lat || !point.long) {
-                skippedCount++;
-                continue;
-            }
-            
-            try {
-                const saved = await saveDeviceHistory({
-                    device_id: DEVICE_ID,
-                    last_update: new Date(point.time * 1000),
-                    gps_signal: point.gps,
-                    latitude: point.lat,
-                    longitude: point.long,
-                    speed: point.speed,
-                    ignition: point.ignition === 1,
-                    has_data: true,
-                    checked_at: new Date(point.time * 1000)
-                });
-                
-                if (saved) {
-                    savedCount++;
-                } else {
-                    duplicateCount++;
-                }
-            } catch (error: any) {
-                logError('[FETCH] Error saving point:', error.message || error);
-            }
-        }
+        // Prepare batch data (filter out invalid coordinates)
+        const validPoints = points.filter(point => point.lat && point.long);
+        const skippedCount = points.length - validPoints.length;
+        
+        const batchData = validPoints.map(point => ({
+            device_id: DEVICE_ID,
+            last_update: new Date(point.time * 1000),
+            gps_signal: point.gps,
+            latitude: point.lat,
+            longitude: point.long,
+            speed: point.speed,
+            ignition: point.ignition === 1,
+            has_data: true,
+            checked_at: new Date(point.time * 1000)
+        }));
 
-        log(`[FETCH] Saved ${savedCount} new GPS points (${duplicateCount} duplicates, ${skippedCount} invalid coordinates skipped)`);
+        let savedCount = 0;
+        try {
+            savedCount = await saveDeviceHistoryBatch(batchData);
+            const duplicateCount = batchData.length - savedCount;
+            log(`[FETCH] Saved ${savedCount} new GPS points (${duplicateCount} duplicates, ${skippedCount} invalid coordinates skipped)`);
+        } catch (error: any) {
+            logError('[FETCH] Batch save failed, error:', error.message || error);
+        }
 
         const latestPoint = points[points.length - 1];
         const hasRecentData = latestPoint.time >= fifteenMinutesAgo;
