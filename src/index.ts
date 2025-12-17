@@ -40,6 +40,21 @@ function logError(...args: any[]) {
     console.error(`[${getUTCTimestamp()}]`, ...args);
 }
 
+function formatDateTime(date: Date, languageCode?: string): string {
+    const locale = languageCode || 'uk-UA';
+    const timeZone = 'Europe/Kyiv'; // Default to Kyiv time
+    
+    return date.toLocaleString(locale, { 
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+}
+
 const bot = new TelegramBot(TELEGRAM_TOKEN, { 
     polling: {
         interval: 1000,
@@ -50,10 +65,8 @@ const bot = new TelegramBot(TELEGRAM_TOKEN, {
     }
 });
 
-// Handle polling errors gracefully
-bot.on('polling_error', (error) => {
-    logError('[Telegram Polling Error]:', error.code, error.message);
-    // Don't crash the app on polling errors - they're usually temporary
+bot.on('polling_error', (error: any) => {
+    logError('[Telegram Polling Error]:', (error as any).code, (error as any).message);
 });
 
 bot.onText(/\/start/, async (msg) => {
@@ -112,6 +125,7 @@ bot.onText(/\/stop/, async (msg) => {
 
 bot.onText(/\/status/, async (msg) => {
     const chatId = msg.chat.id;
+    const userLang = msg.from?.language_code;
 
     try {
         const authenticated = await isAuthenticated(chatId);
@@ -142,33 +156,31 @@ bot.onText(/\/status/, async (msg) => {
             const lastKnown = await getLastKnownLocation(DEVICE_ID);
             if (lastKnown) {
                 const mapsLink = `https://www.google.com/maps?q=${lastKnown.latitude},${lastKnown.longitude}`;
-                message += `Остання відома локація: ${lastKnown.lastUpdate.toLocaleString('uk-UA')}\n` +
-                    `Координати: ${lastKnown.latitude.toFixed(6)}, ${lastKnown.longitude.toFixed(6)}\n` +
-                    `📍 <a href="${mapsLink}">Відкрити на карті</a>\n\n`;
+                message += `⏱ Остання локація: ${formatDateTime(lastKnown.lastUpdate, userLang)}\n` +
+                    `📍 ${lastKnown.latitude.toFixed(6)}, ${lastKnown.longitude.toFixed(6)}\n` +
+                    `🗺 <a href="${mapsLink}">Відкрити на карті</a>\n\n`;
             }
             
-            message += `Перевірено: ${status.checkedAt.toLocaleString('uk-UA')}\n\n` +
-                `🔗 <a href="https://gps.freetrack.com.ua/?auth_token=${FREETRACK_TOKEN}">Перевірити пристрій</a>`;
+            message += `🔗 <a href="https://gps.freetrack.com.ua/?auth_token=${FREETRACK_TOKEN}">Перевірити пристрій</a>`;
             
             bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
             return;
         }
 
         let message = `📊 Статус пристрою (${DEVICE_ID})\n\n` +
-            `Останнє оновлення: ${status.lastUpdate!.toLocaleString('uk-UA')}\n` +
-            `GPS сигнал: ${status.gpsSignal ?? 'N/A'} ${status.gpsSignal && status.gpsSignal < 10 ? '(слабкий)' : '(нормальний)'}` + '\n';
+            `⏱ Оновлено: ${formatDateTime(status.lastUpdate!, userLang)}\n` +
+            `📡 GPS: ${status.gpsSignal ?? 'N/A'} ${status.gpsSignal && status.gpsSignal < 10 ? '(слабкий)' : '(нормальний)'}` + '\n';
         
         if (status.location) {
             const mapsLink = `https://www.google.com/maps?q=${status.location.lat},${status.location.long}`;
-            message += `Локація: ${status.location.lat.toFixed(6)}, ${status.location.long.toFixed(6)}\n` +
-                `📍 <a href="${mapsLink}">Відкрити на карті</a>\n`;
+            message += `📍 ${status.location.lat.toFixed(6)}, ${status.location.long.toFixed(6)}\n` +
+                `🗺 <a href="${mapsLink}">Відкрити на карті</a>\n`;
         } else {
-            message += `Локація: Недоступна\n`;
+            message += `📍 Локація: Недоступна\n`;
         }
         
-        message += `Швидкість: ${status.speed ?? 0} км/год\n` +
-            `Запалювання: ${status.ignition ? 'увімкнено' : 'вимкнено'}\n\n` +
-            `Перевірено: ${status.checkedAt.toLocaleString('uk-UA')}`;
+        message += `🚗 Швидкість: ${status.speed ?? 0} км/год\n` +
+            `🔑 Запалювання: ${status.ignition ? 'увімкнено' : 'вимкнено'}`;
         
         bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
     } catch (error: any) {
@@ -348,13 +360,12 @@ async function performCheck() {
                 
                 if (lastKnown) {
                     const mapsLink = `https://www.google.com/maps?q=${lastKnown.latitude},${lastKnown.longitude}`;
-                    message += `Останнє оновлення: ${lastKnown.lastUpdate.toLocaleString('uk-UA')}\n` +
-                        `Координати: ${lastKnown.latitude.toFixed(6)}, ${lastKnown.longitude.toFixed(6)}\n` +
-                        `📍 <a href="${mapsLink}">Відкрити на карті</a>\n\n`;
+                    message += `⏱ Остання локація: ${formatDateTime(lastKnown.lastUpdate)}\n` +
+                        `📍 ${lastKnown.latitude.toFixed(6)}, ${lastKnown.longitude.toFixed(6)}\n` +
+                        `🗺 <a href="${mapsLink}">Відкрити на карті</a>\n\n`;
                 }
                 
-                message += `Час перевірки: ${new Date().toLocaleString('uk-UA')}\n\n` +
-                    `🔗 <a href="https://gps.freetrack.com.ua/?auth_token=${FREETRACK_TOKEN}">Перевірити пристрій</a>`;
+                message += `🔗 <a href="https://gps.freetrack.com.ua/?auth_token=${FREETRACK_TOKEN}">Перевірити пристрій</a>`;
                 
                 await sendAlertToSubscribers(message);
                 await recordAlert(DEVICE_ID, 'no_data');
@@ -379,17 +390,17 @@ async function performCheck() {
         if (status.gpsSignal !== null && status.gpsSignal < 10) {
             if (await shouldSendAlert(DEVICE_ID, 'low_gps')) {
                 let alertMessage = `⚠️ <b>УВАГА: Слабкий GPS сигнал</b>\n\n` +
-                    `Пристрій ${DEVICE_ID} має слабкий GPS сигнал!\n\n`;
+                    `Пристрій ${DEVICE_ID} має слабкий GPS сигнал!\n\n` +
+                    `⏱ Час: ${formatDateTime(status.lastUpdate!)}\n` +
+                    `📡 GPS: ${status.gpsSignal} супутників (слабкий)\n`;
                 
                 if (status.location) {
                     const mapsLink = `https://www.google.com/maps?q=${status.location.lat},${status.location.long}`;
-                    alertMessage += `Локація: ${status.location.lat.toFixed(6)}, ${status.location.long.toFixed(6)}\n` +
-                        `📍 <a href="${mapsLink}">Відкрити на карті</a>\n`;
+                    alertMessage += `📍 ${status.location.lat.toFixed(6)}, ${status.location.long.toFixed(6)}\n` +
+                        `🗺 <a href="${mapsLink}">Відкрити на карті</a>\n`;
                 }
                 
-                alertMessage += `GPS сигнал: ${status.gpsSignal} (слабкий)\n` +
-                    `Швидкість: ${status.speed ?? 0} км/год\n` +
-                    `Час: ${status.lastUpdate!.toLocaleString('uk-UA')}`;
+                alertMessage += `🚗 Швидкість: ${status.speed ?? 0} км/год`;
                 
                 await sendAlertToSubscribers(alertMessage);
                 await recordAlert(DEVICE_ID, 'low_gps');
