@@ -150,7 +150,7 @@ bot.onText(/\/status/, async (msg) => {
             return;
         }
 
-        if (!status.hasData) {
+        if (!status.hasData && status.speed !== null && status.speed !== 0) {
             let message = `📊 Статус пристрою (${DEVICE_ID})\n\n` +
                 '❌ Пристрій не надсилав даних протягом останніх 15 хвилин\n\n';
             
@@ -335,10 +335,13 @@ async function performCheck() {
         
         const status = await getLatestDeviceStatus(DEVICE_ID);
         
-        // check if the last update is within the last 15 minutes
-        const hasRecentData = status && status.hasData && 
+        // Check if we should alert:
+        // - Alert if NO data for 15+ min AND vehicle was moving (speed > 0)
+        // - Don't alert if vehicle is parked (speed = 0) even if no data
+        const hasRecentData = (status && status.hasData && 
             status.lastUpdate && 
-            (new Date().getTime() - status.lastUpdate.getTime()) < 15 * 60 * 1000;
+            (new Date().getTime() - status.lastUpdate.getTime()) < 15 * 60 * 1000) ||
+            (status && (status.speed === null || status.speed === 0));
 
         if (!hasRecentData) {
             log('[CHECK] No data received in last 15 minutes');
@@ -400,8 +403,15 @@ async function performCheck() {
         }
 
         log('[CHECK] Check completed successfully');
-    } catch (error) {
-        logError('[ERROR] Check failed:', (error as Error).message || 'Unknown error');
+    } catch (error: any) {
+        const errorMsg = error.message || 'Unknown error';
+        
+        // Log database restart errors as warnings, not errors
+        if (errorMsg.includes('starting up') || errorMsg.includes('shutting down')) {
+            log('[CHECK] Database is restarting, will retry on next check...');
+        } else {
+            logError('[ERROR] Check failed:', errorMsg);
+        }
     }
 }
 

@@ -45,9 +45,13 @@ async function queryWithRetry<T = any>(text: string, params?: any[], retries = 3
                                      error.code === 'ECONNREFUSED' || 
                                      error.code === 'ECONNRESET';
             
-            if (isConnectionError && attempt < retries) {
-                console.log(`[DB] Connection error, retrying (${attempt}/${retries})...`);
-                await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+            const isDatabaseStarting = error.message?.includes('starting up') ||
+                                      error.message?.includes('not accept connections') ||
+                                      error.message?.includes('shutting down');
+            
+            if ((isConnectionError || isDatabaseStarting) && attempt < retries) {
+                console.log(`[DB] ${isDatabaseStarting ? 'Database restarting' : 'Connection error'}, retrying (${attempt}/${retries})...`);
+                await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
                 continue;
             }
             
