@@ -291,7 +291,7 @@ async function fetchAndSaveDeviceData(): Promise<{ savedCount: number; hasRecent
                     duplicateCount++;
                 }
             } catch (error: any) {
-                logError('[FETCH] Error saving point:', error.message);
+                logError('[FETCH] Error saving point:', error.message || error);
             }
         }
 

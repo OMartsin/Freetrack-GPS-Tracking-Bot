@@ -3,28 +3,58 @@ import { DeviceHistory, CreateDeviceHistoryDto, DeviceStatusResponse } from '../
 
 
 export async function saveDeviceHistory(data: CreateDeviceHistoryDto): Promise<DeviceHistory | null> {
-    const result = await queryOne<DeviceHistory>(
-        `INSERT INTO device_history 
-         (device_id, last_update, gps_signal, latitude, longitude, speed, ignition, has_data, checked_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         ON CONFLICT ON CONSTRAINT device_history_device_time_unique
-         DO NOTHING
-         RETURNING *`,
-        [
-            data.device_id,
-            data.last_update,
-            data.gps_signal,
-            data.latitude,
-            data.longitude,
-            data.speed,
-            data.ignition,
-            data.has_data,
-            data.checked_at
-        ]
-    );
-    
-    // Return null if duplicate (no rows returned due to ON CONFLICT DO NOTHING)
-    return result;
+    try {
+        const result = await queryOne<DeviceHistory>(
+            `INSERT INTO device_history 
+             (device_id, last_update, gps_signal, latitude, longitude, speed, ignition, has_data, checked_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             ON CONFLICT (device_id, last_update)
+             DO NOTHING
+             RETURNING *`,
+            [
+                data.device_id,
+                data.last_update,
+                data.gps_signal,
+                data.latitude,
+                data.longitude,
+                data.speed,
+                data.ignition,
+                data.has_data,
+                data.checked_at
+            ]
+        );
+        
+        return result;
+    } catch (error: any) {
+        if (error.code === '42P10' || error.message?.includes('there is no unique or exclusion constraint')) {
+            try {
+                const result = await queryOne<DeviceHistory>(
+                    `INSERT INTO device_history 
+                     (device_id, last_update, gps_signal, latitude, longitude, speed, ignition, has_data, checked_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                     RETURNING *`,
+                    [
+                        data.device_id,
+                        data.last_update,
+                        data.gps_signal,
+                        data.latitude,
+                        data.longitude,
+                        data.speed,
+                        data.ignition,
+                        data.has_data,
+                        data.checked_at
+                    ]
+                );
+                return result;
+            } catch (innerError: any) {
+                if (innerError.code === '23505') {
+                    return null;
+                }
+                throw innerError;
+            }
+        }
+        throw error;
+    }
 }
 
 export async function getLatestDeviceStatus(deviceId: string): Promise<DeviceStatusResponse | null> {
