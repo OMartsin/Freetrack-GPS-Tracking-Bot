@@ -189,11 +189,13 @@ interface DeviceStatus {
     speed: number | null;
     ignition: boolean | null;
     hasData: boolean;
+    lastKnownUpdate?: number | null;
 }
 
 async function checkDeviceStatus(): Promise<DeviceStatus> {
     const now = Math.floor(Date.now() / 1000);
     const fifteenMinutesAgo = now - (15 * 60);
+    const oneDayAgo = now - (1 * 24 * 60 * 60);
 
     const url = `https://gpsapi.freetrack.ua/api/`;
     const params = {
@@ -201,7 +203,7 @@ async function checkDeviceStatus(): Promise<DeviceStatus> {
         api_type: 'reports',
         api_name: 'device-trace',
         id: DEVICE_ID,
-        dateFrom: fifteenMinutesAgo,
+        dateFrom: oneDayAgo,
         dateTo: now
     };
 
@@ -221,11 +223,26 @@ async function checkDeviceStatus(): Promise<DeviceStatus> {
                 location: null,
                 speed: null,
                 ignition: null,
-                hasData: false
+                hasData: false,
+                lastKnownUpdate: null
             };
         }
 
         const latestPoint: DevicePoint = deviceData.points[deviceData.points.length - 1];
+        
+        const hasRecentData = latestPoint.time >= fifteenMinutesAgo;
+
+        if (!hasRecentData) {
+            return {
+                lastUpdate: null,
+                gpsSignal: null,
+                location: null,
+                speed: null,
+                ignition: null,
+                hasData: false,
+                lastKnownUpdate: latestPoint.time
+            };
+        }
 
         return {
             lastUpdate: latestPoint.time,
@@ -267,11 +284,18 @@ async function performCheck() {
         if (!status.hasData) {
             log('[CHECK] No data received in last 15 minutes');
             if (await shouldSendAlert(DEVICE_ID, 'no_data')) {
-                await sendAlertToSubscribers(
-                    `🚨 <b>ПОМИЛКА: Немає даних</b>\n\n` +
-                    `Пристрій ${DEVICE_ID} не надсилав даних протягом останніх 15 хвилин!\n\n` +
-                    `Час: ${new Date().toLocaleString('uk-UA')}`
-                );
+                let message = `🚨 <b>ПОМИЛКА: Немає даних</b>\n\n` +
+                    `Пристрій ${DEVICE_ID} не надсилав даних протягом останніх 15 хвилин!\n\n`;
+                
+                if (status.lastKnownUpdate) {
+                    const lastSeenTime = new Date(status.lastKnownUpdate * 1000).toLocaleString('uk-UA');
+                    message += `Остання відома локація: ${lastSeenTime}\n\n`;
+                }
+                
+                message += `Час перевірки: ${new Date().toLocaleString('uk-UA')}\n\n` +
+                    `🔗 <a href="https://gps.freetrack.com.ua/?auth_token=${FREETRACK_TOKEN}">Перевірити пристрій</a>`;
+                
+                await sendAlertToSubscribers(message);
                 await recordAlert(DEVICE_ID, 'no_data');
                 log('[ALERT] No data alert sent');
             }
