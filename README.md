@@ -2,7 +2,7 @@
 
 A Telegram bot that monitors GPS devices via Freetrack API and sends alerts when issues are detected.
 
-## Features
+## Features 
 
 - 🔐 Password-protected subscription system
 - 📍 GPS monitoring every 7 minutes
