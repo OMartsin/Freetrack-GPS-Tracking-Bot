@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build*)",
+      "Bash(npm run migrate:create*)",
+      "Bash(npm ci*)",
+      "Bash(npm install*)",
+      "Bash(npm ls*)",
+      "Bash(npm audit*)",
+      "Bash(npx tsc*)",
+      "Bash(node --version*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(git branch*)",
+      "Bash(git add*)",
+      "Edit(src/**)",
+      "Edit(migrations/**)",
+      "Write(src/**)",
+      "Write(migrations/**)"
+    ],
+    "ask": [
+      "Bash(npm run dev*)",
+      "Bash(npm start*)",
+      "Bash(npm run migrate:up*)",
+      "Bash(npm run migrate:down*)",
+      "Bash(git push*)"
+    ]
+  }
+}

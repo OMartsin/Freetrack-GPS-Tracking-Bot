@@ -187,19 +187,19 @@ export async function getLastKnownLocation(deviceId: string): Promise<{
     };
 }
 
-export async function cleanupOldHistory(daysToKeep: number = 7): Promise<number> {
+export async function cleanupOldHistory(daysToKeep: number = 15): Promise<number> {
     const cutoffDate = new Date(Date.now() - daysToKeep * 24 * 60 * 60 * 1000);
-    
+
     const result = await query<{ count: number }>(
         `WITH deleted AS (
-            DELETE FROM device_history 
+            DELETE FROM device_history
             WHERE created_at < $1
-            RETURNING *
+            RETURNING 1
          )
-         SELECT COUNT(*) as count FROM deleted`,
+         SELECT COUNT(*)::int as count FROM deleted`,
         [cutoffDate]
     );
-    
+
     return result[0]?.count || 0;
 }
 

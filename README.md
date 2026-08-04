@@ -11,7 +11,7 @@ A Telegram bot that monitors GPS devices via Freetrack API and sends alerts when
   - Weak GPS signal (< 10 satellites)
 - 📊 Device status history (stored in PostgreSQL)
 - 📈 Status command reads from database (no API rate limits)
-- 🗄️ Automatic cleanup of old data (7 days retention)
+- 🗄️ Automatic cleanup of old data (15 days retention)
 - ☁️ Production-ready PostgreSQL support
 
 ## Requirements
@@ -89,5 +89,5 @@ For detailed setup instructions, see [SETUP.md](./SETUP.md).
 2. **History Storage**: Status is saved to PostgreSQL for historical tracking
 3. **Status Command**: Users can check status anytime without hitting API rate limits
 4. **Smart Alerts**: Alerts are sent only when issues are detected (with 30-minute cooldown)
-5. **Auto Cleanup**: Old data (>7 days) is automatically cleaned up daily
+5. **Auto Cleanup**: Old data (>15 days) is automatically cleaned up daily
 

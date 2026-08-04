@@ -28,6 +28,7 @@ const FREETRACK_TOKEN = process.env.FREETRACK_TOKEN!;
 const DEVICE_ID = process.env.DEVICE_ID!;
 const AUTH_PASSWORD = process.env.AUTH_PASSWORD!;
 const CHECK_INTERVAL = '*/7 * * * *'; // Every 7 minutes
+const HISTORY_RETENTION_DAYS = 15;
 
 function getUTCTimestamp(): string {
     return new Date().toISOString();
@@ -429,7 +430,7 @@ async function start() {
 
     cron.schedule('0 0 * * *', async () => {
         log('[CLEANUP] Cleaning up old device history...');
-        const deletedCount = await cleanupOldHistory(7);
+        const deletedCount = await cleanupOldHistory(HISTORY_RETENTION_DAYS);
         log(`[CLEANUP] Deleted ${deletedCount} old device history records`);
     });
 
